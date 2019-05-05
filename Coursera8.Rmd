@@ -41,6 +41,7 @@ diag(M)<-0
 #found what looks like a misprinted outlier (using 0.95 threshold)
 plot(training_s$gyros_forearm_z,training_s$gyros_forearm_x)
 ```
+
 ...is this.  Oh dear.  Looking at the data, it would seem like one row in the training set (identifier 5373, fact fans) has been entered incorrectly, with several accelerometer measurements that don't reach double figures in any other row being in the hundreds. 
  
 We remove this observation to avoid it skewing our results.  This decreases several variables' correlations, artificially increased by that one point. 
