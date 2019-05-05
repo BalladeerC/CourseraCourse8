@@ -1,0 +1,97 @@
+---
+title: "Machine Learning Analysis of Barbell Data"
+author: "Balladeer"
+date: "02/05/2019"
+output: html_document
+---
+## Executive Summary
+We want to create a valid machine learning approach that predicts, based on accelerometers worn on various parts of the body, what barbell motions are being performed.  A potential use of this could be to inform wearable fitness users whether they are performing the correct motions in their exercises.
+We use a random forest with three-fold cross-validation, tested on a 'test set' taken out of the training set, based on the major non-summary non-time factors.  The model predicts the 'test set' results with 99% accuracy.
+## Looking at the Data
+It's worth looking at the training dataset before we start, to identify patterns, and in particular whether any variables can be excluded.
+ 
+```{r, echo=FALSE}
+#load packages
+suppressMessages(library(caret))
+suppressMessages(library(dplyr))
+#get data - un-comment these if running for the first time
+#urltrain <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+#download.file(urltrain,"./training_data.csv","curl")
+training <- read.csv("./training_data.csv")
+#urltest <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+#download.file(urltest,"./testing_data.csv","curl")
+testing <- read.csv("./testing_data.csv")
+```
+After loading the data, we see immediately that there are several variables that appear to be only used for summaries over time intervals, and are empty or NA for most of the dataset.  We can remove these immediately.  There is also an identifier that we can remove ('X'), and some 'total' variables that are presumably combinations of others.
+We've also removed the time series variables.  This may seem controversial: in the words of Jeffrey Leek, we might be 'ignoring a huge rich structure in the data'.  The reason for doing this is twofold: applying a preliminary GLM approach (not shown in the RMarkdown) really struggled when the time data was included, and we don't think that the time points are likely to depend on each other so much for barbell lifts.  People might get tired, I suppose, but the data takes place over several days: plenty of time to rest.  And we have lots of other data to (over)fit on.
+ 
+We choose instead to focus on the identify of the lifter and the accelerometer readings only, and not treat this like a time series.
+```{r, echo=FALSE}
+#get rid of 'summary items' and most times
+exclude <- grep(
+  "^(X|raw_timestamp|cvtd_timestamp|num_|new_window|kurtosis|skewness|max|min|amplitude|var|avg|stddev|total)",colnames(training))
+training_s <- training[,-exclude]
+```
+We could do a correlation analysis, and have done one below (without showing the results in this case), showing that several of the factors are highly correlated up to even a 95% threshold.  One thing that we find when looking at the variables that are highly correlated...
+```{r, echo=F}
+#correlation identifier
+M<-abs(cor(training_s[,-c(1,50)]))
+diag(M)<-0
+ 
+#found what looks like a misprinted outlier (using 0.95 threshold)
+plot(training_s$gyros_forearm_z,training_s$gyros_forearm_x)
+```
+...is this.  Oh dear.  Looking at the data, it would seem like one row in the training set (identifier 5373, fact fans) has been entered incorrectly, with several accelerometer measurements that don't reach double figures in any other row being in the hundreds. 
+ 
+We remove this observation to avoid it skewing our results.  This decreases several variables' correlations, artificially increased by that one point. 
+ 
+Several do remain high, however.  At this stage we have no guide as to which variables to omit, and we're not using linear models where PCA would be most useful; so we're keeping the others for now.  Tests later will look at whether there's any over-prediction, in which case we can drop some variables. 
+ 
+```{r, echo=F}
+##second exclusion
+training_s <- training_s[which(abs(training$gyros_forearm_z)<50),]
+```
+Finally, we want to do some manual cross-validation, so that we can calculate an estimate of the out-of-sample error.  Let's break our training set into separate training and cross-validation sets.  We use 40% of the data for the testing set, as recommended by the course.
+ 
+```{r, echo=F}
+#set seed for partitioning
+set.seed(12)
+#create partition
+inTrain <- createDataPartition(y=training_s$classe, p=0.60, list=FALSE)
+train1  <- training_s[inTrain,]
+train2  <- training_s[-inTrain,]
+```
+ 
+We've created a dataset called train1 which will be our test set, and a dataset called train2 which will be used for validation.
+ 
+## Picking a Model
+The gradient-boosted model ("gbm") and random forest are identified in the course as the most powerful predictive models.  We run a random forest as our model, because cross-validation as described below results in errors when applied to a gbm. 
+ 
+Since we've decided not to treat this data as a time series, we can use the caret package's in-built randomised cross-validation tools.  This is where run-time can really hurt us, so we've picked three folds as the correct number to use.  This is expected to give a lower bias but higher variance than choosing a higher number of folds.  Hopefully the large size of the data set and large number of factors used should compensate for the variance.
+(Caution: the code chunk below takes a while to run.  It is fitting a complex model with many factors, after all.)
+```{r, echo=F, cache=T}
+#set seed
+set.seed(8282)
+ 
+#introduce some cross-validation
+train_control <- trainControl(method="cv",number=3)
+#fit a rf
+mod <- train(classe~.,data=train1, method="rf",trainControl=train_control)
+pred<-predict(mod,train2)
+```
+## Results
+Let's check whether our models give good results when applied to the training set that we've taken out of our data.  We can do this by looking at the confusion matrix.
+ 
+```{r,echo=F}
+#check where the models are the same
+confusionMatrix(pred,train2$classe)
+```
+ 
+An accuracy of 99.1% (which, incidentally, is an estimate of the out-of-sample error) suggests a good model, with low risk of overfitting despite the many factors used.  The confidence interval is narrow as well: using a small number of folds in the cross-validation has not led to problems here.  Finally, therefore, we can apply our model to the actual testing set to get some predictions.
+ 
+```{r,echo=F}
+#test set results
+predict(mod,testing)
+```
+ 
+Thank you for marking my report!
